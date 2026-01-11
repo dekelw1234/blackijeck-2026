@@ -210,6 +210,12 @@ def play_one_round(client_socket, game_num, client_name, client_addr):
         time.sleep(0.5)
         logger.debug(f"{log_prefix} Dealer drew {new_card}. New Sum: {dealer_sum}")
 
+        if dealer_sum > player_final: # if dealer already won
+            send_game_packet(client_socket, 2, new_card)
+            logger.info(f"{log_prefix} Dealer wins ({dealer_sum} > {player_final})")
+            time.sleep(0.5)
+            return
+
         if dealer_sum >= 17:
             if dealer_sum > 21 or dealer_sum < player_final: # dealer busts
                 send_game_packet(client_socket, 3, new_card)  # send the new card to client

@@ -45,6 +45,7 @@ class BlackjackGUI:
         self.root = tk.Tk()
         self.root.title("🎲 Blackjack Client")
         self.root.geometry("1024x768")
+        self.game_running = False
 
         # State
         self.servers = {}
@@ -252,7 +253,9 @@ class BlackjackGUI:
             bg="#1a1a1a",
             fg="#90EE90",
             padx=10,
-            pady=2
+            pady=2,
+            width=15,
+            anchor="center"
         )
         self.dealer_sum_label.pack(pady=3)
 
@@ -268,8 +271,8 @@ class BlackjackGUI:
             player_card_frame,
             text="",
             font=("Courier", 32, "bold"),
-            bg="#0d5c2d",
-            fg="white",
+            bg="#1a1a1a",
+            fg="#90EE90",
             bd=2,
             relief="solid",
             padx=20,
@@ -284,10 +287,11 @@ class BlackjackGUI:
             bg="#1a1a1a",
             fg="#90EE90",
             padx=10,
-            pady=2
+            pady=2,
+            width=15,
+            anchor="center"
         )
         self.player_sum_label.pack(pady=3)
-
         # Action Buttons (50%, 90%)
         action_frame = tk.Frame(self.canvas, bg="")
         self.windows['actions'] = self.canvas.create_window(
@@ -356,21 +360,37 @@ class BlackjackGUI:
         # Player cards
         if self.player_cards:
             player_display = " ".join([card_to_display(r, s) for r, s in self.player_cards])
-            self.player_cards_label.config(text=player_display)
+            self.player_cards_label.config(
+                text=player_display,
+                relief="solid",  # ✅ הצג border
+                bd=2
+            )
             player_sum = calculate_hand(self.player_cards)
             self.player_sum_label.config(text=f"Sum: {player_sum}")
         else:
-            self.player_cards_label.config(text="")
+            self.player_cards_label.config(
+                text="",
+                relief="flat",  # ✅ הסתר border!
+                bd=0
+            )
             self.player_sum_label.config(text="")
 
         # Dealer cards
         if self.dealer_cards:
             dealer_display = " ".join([card_to_display(r, s) for r, s in self.dealer_cards])
-            self.dealer_cards_label.config(text=dealer_display)
+            self.dealer_cards_label.config(
+                text=dealer_display,
+                relief="solid",  # ✅ הצג border
+                bd=2
+            )
             dealer_sum = calculate_hand(self.dealer_cards)
             self.dealer_sum_label.config(text=f"Sum: {dealer_sum}")
         else:
-            self.dealer_cards_label.config(text="??")
+            self.dealer_cards_label.config(
+                text="",
+                relief="flat",  # ✅ הסתר border!
+                bd=0
+            )
             self.dealer_sum_label.config(text="")
 
     def start_udp_listener(self):
@@ -465,39 +485,100 @@ class BlackjackGUI:
         data = b''
         while len(data) < n:
             try:
+                if not self.game_running:
+                    return None
+
+                self.game_socket.settimeout(1.0)
                 packet = self.game_socket.recv(n - len(data))
                 if not packet:
                     return None
                 data += packet
+            except socket.timeout:
+                if not self.game_running:
+                    return None
+                continue
             except:
                 return None
         return data
 
     def game_loop(self):
         """Main game loop"""
+        self.game_running = True
+
         try:
-            while self.current_round < self.num_rounds:
+            while self.current_round < self.num_rounds and self.game_running:
                 self.play_round()
                 time.sleep(2)
 
-            # Game over
-            self.root.after(0, self.show_game_over)
+            if self.game_running:
+                self.root.after(0, self.show_game_over)
 
         except Exception as e:
+            print(f"Game error: {e}")
             self.root.after(0, lambda: messagebox.showerror("Game Error", f"Error: {e}"))
             self.root.after(0, self.reset_game)
+        finally:
+            self.game_running = False
+
+    def reset_game(self):
+        """Reset game state"""
+        self.game_running = False
+
+        if self.game_socket:
+            try:
+                self.game_socket.shutdown(socket.SHUT_RDWR)
+            except:
+                pass
+            try:
+                self.game_socket.close()
+            except:
+                pass
+            self.game_socket = None
+
+        self.connected = False
+        self.player_cards = []
+        self.dealer_cards = []
+        self.current_round = 0
+        self.my_turn = True
+        self.cards_received = 0
+        self.num_rounds = 0
+
+        self.player_cards_label.config(text="")
+        self.player_sum_label.config(text="")
+        self.dealer_cards_label.config(text="")
+        self.dealer_sum_label.config(text="")
+
+        self.connect_btn.config(state="normal")
+        self.hit_btn.config(state="disabled")
+        self.stand_btn.config(state="disabled")
+        self.update_display()
+        self.update_stats()
+        self.status.config(text="🔍 Looking for servers...", bg="#1a1a1a")
+
+        print("Game reset complete")
 
     def play_round(self):
         """Play one round"""
         self.current_round += 1
+
+        # ✅ נקה קלפים וUI
         self.player_cards = []
         self.dealer_cards = []
         self.my_turn = True
         self.cards_received = 0
 
-        self.root.after(0, self.update_stats)
-        self.root.after(0, self.update_display)
-        self.root.after(0, lambda: self.status.config(text=f"🎲 Round {self.current_round} starting..."))
+        # ✅ עדכן UI מיד - בצורה סינכרונית
+        def clear_ui():
+            self.update_display()
+            self.update_stats()
+            self.status.config(text=f"🎲 Round {self.current_round} starting...")
+            self.hit_btn.config(state="disabled")
+            self.stand_btn.config(state="disabled")
+
+        self.root.after(0, clear_ui)
+
+        # ✅ המתן קצת כדי שה-UI יתעדכן
+        time.sleep(0.8)
 
         while True:
             packet = self.recv_all(9)
@@ -535,9 +616,21 @@ class BlackjackGUI:
 
         # Enable buttons after initial deal
         if self.my_turn and self.cards_received >= 3:
-            self.root.after(0, lambda: self.hit_btn.config(state="normal"))
-            self.root.after(0, lambda: self.stand_btn.config(state="normal"))
-            self.root.after(0, lambda: self.status.config(text="🤔 Your turn! Hit or Stand?"))
+            # ✅ בדוק אם השחקן הגיע ל-21
+            player_sum = calculate_hand(self.player_cards)
+
+            if player_sum == 21:
+                # ✅ Stand אוטומטי!
+                self.root.after(0, lambda: self.status.config(text="🎉 21! Auto-standing..."))
+                self.root.after(0, lambda: self.hit_btn.config(state="disabled"))
+                self.root.after(0, lambda: self.stand_btn.config(state="disabled"))
+                # שלח Stand אחרי delay קצר כדי שהמשתמש יראה את ה-21
+                self.root.after(800, self.stand)
+            else:
+                # ✅ אפשר לבחור רק אם לא ב-21
+                self.root.after(0, lambda: self.hit_btn.config(state="normal"))
+                self.root.after(0, lambda: self.stand_btn.config(state="normal"))
+                self.root.after(0, lambda: self.status.config(text="🤔 Your turn! Hit or Stand?"))
 
     def handle_round_end(self, result, rank, suit):
         """Handle round end"""
@@ -563,13 +656,30 @@ class BlackjackGUI:
             msg = "🤝 IT'S A TIE!"
             color = "#ffc107"
 
-        self.root.after(0, self.update_stats)
-        self.root.after(0, lambda: self.status.config(text=msg, bg=color))
-        self.root.after(0, lambda: self.hit_btn.config(state="disabled"))
-        self.root.after(0, lambda: self.stand_btn.config(state="disabled"))
+        # ✅ עדכן הכל ביחד
+        def show_result():
+            self.update_stats()
+            self.status.config(text=msg, bg=color)
+            self.hit_btn.config(state="disabled")
+            self.stand_btn.config(state="disabled")
 
+        self.root.after(0, show_result)
+
+        # ✅ המתן 2 שניות כדי לראות את התוצאה עם הקלפים
+        time.sleep(2.0)
+
+        # ✅ נקה את הקלפים!
+        self.player_cards = []
+        self.dealer_cards = []
+
+        def clear_after_result():
+            self.update_display()
+            self.status.config(bg="#1a1a1a")
+
+        self.root.after(0, clear_after_result)
+
+        # ✅ המתן עוד רגע קצר לפני הסיבוב הבא
         time.sleep(0.5)
-        self.root.after(0, lambda: self.status.config(bg="#1a1a1a"))
 
     def hit(self):
         """Send Hit command"""
@@ -596,6 +706,9 @@ class BlackjackGUI:
 
     def show_game_over(self):
         """Show game over screen with animated GIF"""
+        # ✅ עצור את המשחק לפני שמציגים את החלון
+        self.game_running = False
+
         win_rate = (self.wins / self.num_rounds * 100) if self.num_rounds > 0 else 0
 
         # Create custom window
@@ -640,22 +753,21 @@ class BlackjackGUI:
                     frame = gif_image.copy()
                     frame = frame.resize((300, 300), Image.LANCZOS)
                     frames.append(ImageTk.PhotoImage(frame))
-                    gif_image.seek(len(frames))  # Move to next frame
+                    gif_image.seek(len(frames))
             except EOFError:
-                pass  # All frames extracted
+                pass
 
             # Animate function
             def animate(frame_idx=0):
                 if game_over_window.winfo_exists():
                     gif_label.config(image=frames[frame_idx])
                     frame_idx = (frame_idx + 1) % len(frames)
-                    game_over_window.after(50, animate, frame_idx)  # 50ms = ~20fps
+                    game_over_window.after(50, animate, frame_idx)
 
             animate()
 
         except Exception as e:
             print(f"Error loading GIF: {e}")
-            # Fallback emoji if GIF fails
             emoji = "🏆" if win_rate >= 50 else "💔"
             gif_label.config(
                 text=emoji,
@@ -709,7 +821,11 @@ class BlackjackGUI:
         )
         stats_label.pack(pady=10)
 
-        # Close button
+        # ✅ Close button - אפס רק אחרי שסוגרים את החלון
+        def on_close():
+            game_over_window.destroy()
+            self.reset_game()
+
         close_btn = tk.Button(
             game_over_window,
             text="✖ Close",
@@ -717,7 +833,7 @@ class BlackjackGUI:
             bg="#dc3545",
             fg="white",
             activebackground="#c82333",
-            command=lambda: [game_over_window.destroy(), self.reset_game()],
+            command=on_close,
             cursor="hand2",
             bd=0,
             padx=30,
@@ -725,8 +841,8 @@ class BlackjackGUI:
         )
         close_btn.pack(pady=20)
 
-        # Wait for window to close
-        game_over_window.wait_window()
+        # ✅ טפל בסגירת החלון עם X
+        game_over_window.protocol("WM_DELETE_WINDOW", on_close)
 
 
     def run(self):
