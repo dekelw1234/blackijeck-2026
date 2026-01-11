@@ -427,7 +427,7 @@ class BlackjackGUI:
 
     def update_display(self):
         """Update card displays"""
-        # Player cards
+        # Player cards list
         if self.player_cards:
             player_display = " ".join([card_to_display(r, s) for r, s in self.player_cards])
             self.player_cards_label.config(
