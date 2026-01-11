@@ -4,7 +4,7 @@ import socket
 import threading
 import time
 import protocol
-import struct
+from PIL import Image, ImageTk
 
 # --- Constants ---
 UDP_PORT = 13122
@@ -13,9 +13,7 @@ BUFFER_SIZE = 1024
 
 # --- Card Display Helper ---
 def card_to_display(rank, suit):
-    """
-    Converts card to readable string with emoji suits
-    """
+    """Converts card to readable string with emoji suits"""
     suits = ['♥', '♦', '♣', '♠']
     ranks = {1: 'A', 11: 'J', 12: 'Q', 13: 'K'}
     r_str = ranks.get(rank, str(rank))
@@ -46,8 +44,7 @@ class BlackjackGUI:
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("🎲 Blackjack Client")
-        self.root.geometry("900x700")
-        self.root.configure(bg="#0d5c2d")
+        self.root.geometry("1024x768")
 
         # State
         self.servers = {}
@@ -65,221 +62,316 @@ class BlackjackGUI:
         self.my_turn = True
         self.cards_received = 0
 
+        # Store window references for repositioning
+        self.windows = {}
+
+        # Load background image
+        try:
+            self.bg_image_original = Image.open("blackjacktable.png")
+            self.bg_photo = None
+        except Exception as e:
+            print(f"Error loading background: {e}")
+            self.bg_image_original = None
+
         self.create_ui()
         self.start_udp_listener()
 
+        # Bind resize event
+        self.root.bind('<Configure>', self.on_resize)
+
+    def on_resize(self, event):
+        """Handle window resize - update background and reposition all elements"""
+        if event.widget == self.root:
+            width = event.width
+            height = event.height
+
+            # Resize background image
+            if self.bg_image_original:
+                resized = self.bg_image_original.resize((width, height), Image.LANCZOS)
+                self.bg_photo = ImageTk.PhotoImage(resized)
+                self.canvas.delete("bg")
+                self.canvas.create_image(0, 0, image=self.bg_photo, anchor="nw", tags="bg")
+                self.canvas.tag_lower("bg")
+
+            # Update canvas size
+            self.canvas.config(width=width, height=height)
+
+            # Reposition all elements based on percentages
+            self.reposition_elements(width, height)
+
+    def reposition_elements(self, width, height):
+        """Reposition all UI elements based on window size"""
+        # Title (center top - 50%, 4%)
+        self.canvas.coords(self.windows['title'], width * 0.5, height * 0.04)
+
+        # Stats (top right - 85%, 4%)
+        self.canvas.coords(self.windows['stats'], width * 0.85, height * 0.04)
+
+        # Connection panel (top left - 15%, 10%)
+        self.canvas.coords(self.windows['connection'], width * 0.15, height * 0.10)
+
+        # Dealer cards (center, 35% from top)
+        self.canvas.coords(self.windows['dealer'], width * 0.5, height * 0.35)
+
+        # Player cards (center, 75% from top)
+        self.canvas.coords(self.windows['player'], width * 0.5, height * 0.75)
+
+        # Action buttons (center, 90% from top)
+        self.canvas.coords(self.windows['actions'], width * 0.5, height * 0.90)
+
+        # Status bar (center bottom, 97% from top)
+        self.canvas.coords(self.windows['status'], width * 0.5, height * 0.97)
+
     def create_ui(self):
-        """Build the interface"""
-        # Header
-        header_frame = tk.Frame(self.root, bg="#0d5c2d")
-        header_frame.pack(pady=10, fill="x")
+        """Build the interface with custom background"""
+
+        # Main Canvas with background
+        self.canvas = tk.Canvas(
+            self.root,
+            width=1024,
+            height=768,
+            highlightthickness=0
+        )
+        self.canvas.pack(fill="both", expand=True)
+
+        # Set initial background
+        if self.bg_image_original:
+            resized = self.bg_image_original.resize((1024, 768), Image.LANCZOS)
+            self.bg_photo = ImageTk.PhotoImage(resized)
+            self.canvas.create_image(0, 0, image=self.bg_photo, anchor="nw", tags="bg")
+        else:
+            self.canvas.configure(bg="#0d5c2d")
+
+        # Title overlay (50%, 4%)
+        title_frame = tk.Frame(self.canvas, bg="#1a1a1a", bd=2, relief="solid")
+        self.windows['title'] = self.canvas.create_window(
+            512, 30,
+            window=title_frame,
+            tags="overlay"
+        )
 
         title = tk.Label(
-            header_frame,
+            title_frame,
             text="♠️ BLACKJACK ♥️",
-            font=("Arial", 36, "bold"),
-            bg="#0d5c2d",
-            fg="#ffd700"
+            font=("Arial", 28, "bold"),
+            bg="#1a1a1a",
+            fg="#ffd700",
+            padx=30,
+            pady=5
         )
         title.pack()
 
-        subtitle = tk.Label(
-            header_frame,
-            text="Network Blackjack Client",
-            font=("Arial", 12),
-            bg="#0d5c2d",
-            fg="#90EE90"
+        # Stats Bar (85%, 4%)
+        stats_frame = tk.Frame(self.canvas, bg="#1a1a1a", bd=2, relief="solid")
+        self.windows['stats'] = self.canvas.create_window(
+            870, 30,
+            window=stats_frame,
+            tags="overlay"
         )
-        subtitle.pack()
-
-        # Stats Bar
-        self.stats_frame = tk.Frame(self.root, bg="#1a7a42", bd=2, relief="solid")
-        self.stats_frame.pack(pady=5, padx=20, fill="x")
 
         self.stats_label = tk.Label(
-            self.stats_frame,
-            text="Wins: 0 | Losses: 0 | Ties: 0 | Round: 0/0",
-            font=("Arial", 11, "bold"),
-            bg="#1a7a42",
+            stats_frame,
+            text="W:0 L:0 T:0\nRound: 0/0",
+            font=("Arial", 10, "bold"),
+            bg="#1a1a1a",
             fg="white",
-            pady=5
+            padx=10,
+            pady=5,
+            justify="center"
         )
         self.stats_label.pack()
 
-        # Connection Panel
-        conn_frame = tk.LabelFrame(
-            self.root,
-            text="📡 Server Connection",
-            font=("Arial", 12, "bold"),
-            bg="#1a7a42",
-            fg="white",
-            bd=2,
-            relief="solid"
+        # Server connection panel (15%, 10%)
+        conn_frame = tk.Frame(self.canvas, bg="#1a1a1a", bd=2, relief="solid")
+        self.windows['connection'] = self.canvas.create_window(
+            150, 80,
+            window=conn_frame,
+            tags="overlay"
         )
-        conn_frame.pack(pady=10, padx=20, fill="both")
+
+        tk.Label(
+            conn_frame,
+            text="📡 Servers",
+            font=("Arial", 11, "bold"),
+            bg="#1a1a1a",
+            fg="#ffd700"
+        ).pack(pady=2)
 
         self.server_list = tk.Listbox(
             conn_frame,
-            font=("Courier", 11),
-            bg="#2d8f52",
+            font=("Courier", 9),
+            bg="#2d2d2d",
             fg="white",
             selectbackground="#ffd700",
             selectforeground="black",
-            height=4,
-            bd=0,
-            highlightthickness=0
+            height=3,
+            width=30,
+            bd=0
         )
-        self.server_list.pack(pady=10, padx=10, fill="both")
+        self.server_list.pack(pady=3, padx=5)
 
         self.connect_btn = tk.Button(
             conn_frame,
-            text="🎮 Connect to Server",
-            font=("Arial", 13, "bold"),
+            text="🎮 Connect",
+            font=("Arial", 10, "bold"),
             bg="#ffd700",
             fg="black",
-            activebackground="#ffed4e",
             command=self.connect_to_server,
             cursor="hand2",
             bd=0,
-            padx=20,
-            pady=8
+            padx=15,
+            pady=3
         )
         self.connect_btn.pack(pady=5)
 
-        # Game Area
-        game_frame = tk.Frame(self.root, bg="#0d5c2d")
-        game_frame.pack(fill="both", expand=True, padx=20, pady=10)
-
-        # Dealer Section
-        dealer_section = tk.Frame(game_frame, bg="#1a4d2e", bd=2, relief="solid")
-        dealer_section.pack(fill="both", expand=True, pady=5)
-
-        tk.Label(
-            dealer_section,
-            text="🎩 DEALER",
-            font=("Arial", 16, "bold"),
-            bg="#1a4d2e",
-            fg="#ffd700"
-        ).pack(pady=5)
+        # Dealer Cards Area (50%, 35%)
+        dealer_card_frame = tk.Frame(self.canvas, bg="", bd=0)
+        self.windows['dealer'] = self.canvas.create_window(
+            512, 270,
+            window=dealer_card_frame,
+            tags="overlay"
+        )
 
         self.dealer_cards_label = tk.Label(
-            dealer_section,
+            dealer_card_frame,
             text="",
-            font=("Courier", 24, "bold"),
-            bg="#1a4d2e",
+            font=("Courier", 32, "bold"),
+            bg="#0d5c2d",
             fg="white",
-            pady=10
+            bd=2,
+            relief="solid",
+            padx=20,
+            pady=5
         )
         self.dealer_cards_label.pack()
 
         self.dealer_sum_label = tk.Label(
-            dealer_section,
-            text="Sum: 0",
+            dealer_card_frame,
+            text="",
             font=("Arial", 14, "bold"),
-            bg="#1a4d2e",
-            fg="#90EE90"
+            bg="#1a1a1a",
+            fg="#90EE90",
+            padx=10,
+            pady=2
         )
-        self.dealer_sum_label.pack(pady=5)
+        self.dealer_sum_label.pack(pady=3)
 
-        # Player Section
-        player_section = tk.Frame(game_frame, bg="#2d5a3d", bd=2, relief="solid")
-        player_section.pack(fill="both", expand=True, pady=5)
-
-        tk.Label(
-            player_section,
-            text="👤 YOU",
-            font=("Arial", 16, "bold"),
-            bg="#2d5a3d",
-            fg="#ffd700"
-        ).pack(pady=5)
+        # Player Cards Area (50%, 75%)
+        player_card_frame = tk.Frame(self.canvas, bg="", bd=0)
+        self.windows['player'] = self.canvas.create_window(
+            512, 576,
+            window=player_card_frame,
+            tags="overlay"
+        )
 
         self.player_cards_label = tk.Label(
-            player_section,
+            player_card_frame,
             text="",
-            font=("Courier", 24, "bold"),
-            bg="#2d5a3d",
+            font=("Courier", 32, "bold"),
+            bg="#0d5c2d",
             fg="white",
-            pady=10
+            bd=2,
+            relief="solid",
+            padx=20,
+            pady=5
         )
         self.player_cards_label.pack()
 
         self.player_sum_label = tk.Label(
-            player_section,
-            text="Sum: 0",
+            player_card_frame,
+            text="",
             font=("Arial", 14, "bold"),
-            bg="#2d5a3d",
-            fg="#90EE90"
+            bg="#1a1a1a",
+            fg="#90EE90",
+            padx=10,
+            pady=2
         )
-        self.player_sum_label.pack(pady=5)
+        self.player_sum_label.pack(pady=3)
 
-        # Action Buttons
-        action_frame = tk.Frame(self.root, bg="#0d5c2d")
-        action_frame.pack(pady=10)
+        # Action Buttons (50%, 90%)
+        action_frame = tk.Frame(self.canvas, bg="")
+        self.windows['actions'] = self.canvas.create_window(
+            512, 691,
+            window=action_frame,
+            tags="overlay"
+        )
 
         self.hit_btn = tk.Button(
             action_frame,
             text="🃏 HIT",
-            font=("Arial", 18, "bold"),
+            font=("Arial", 16, "bold"),
             bg="#28a745",
             fg="white",
-            activebackground="#218838",
-            width=12,
+            width=10,
             command=self.hit,
             cursor="hand2",
             bd=0,
-            pady=10,
+            pady=8,
             state="disabled"
         )
-        self.hit_btn.pack(side="left", padx=10)
+        self.hit_btn.pack(side="left", padx=15)
 
         self.stand_btn = tk.Button(
             action_frame,
             text="✋ STAND",
-            font=("Arial", 18, "bold"),
+            font=("Arial", 16, "bold"),
             bg="#dc3545",
             fg="white",
-            activebackground="#c82333",
-            width=12,
+            width=10,
             command=self.stand,
             cursor="hand2",
             bd=0,
-            pady=10,
+            pady=8,
             state="disabled"
         )
-        self.stand_btn.pack(side="left", padx=10)
+        self.stand_btn.pack(side="left", padx=15)
 
-        # Status Bar
+        # Status Bar (50%, 97%)
+        status_frame = tk.Frame(self.canvas, bg="#1a1a1a")
+        self.windows['status'] = self.canvas.create_window(
+            512, 745,
+            window=status_frame,
+            tags="overlay"
+        )
+
         self.status = tk.Label(
-            self.root,
+            status_frame,
             text="🔍 Looking for servers...",
             font=("Arial", 11),
-            bg="#0a3d1f",
+            bg="#1a1a1a",
             fg="white",
-            anchor="w",
-            padx=10,
+            padx=200,
             pady=5
         )
-        self.status.pack(side="bottom", fill="x")
+        self.status.pack()
 
     def update_stats(self):
         """Update statistics display"""
         self.stats_label.config(
-            text=f"Wins: {self.wins} | Losses: {self.losses} | Ties: {self.ties} | Round: {self.current_round}/{self.num_rounds}"
+            text=f"W:{self.wins} L:{self.losses} T:{self.ties}\nRound: {self.current_round}/{self.num_rounds}"
         )
 
     def update_display(self):
         """Update card displays"""
         # Player cards
-        player_display = " ".join([card_to_display(r, s) for r, s in self.player_cards])
-        self.player_cards_label.config(text=player_display if player_display else "No cards")
-        player_sum = calculate_hand(self.player_cards) if self.player_cards else 0
-        self.player_sum_label.config(text=f"Sum: {player_sum}")
+        if self.player_cards:
+            player_display = " ".join([card_to_display(r, s) for r, s in self.player_cards])
+            self.player_cards_label.config(text=player_display)
+            player_sum = calculate_hand(self.player_cards)
+            self.player_sum_label.config(text=f"Sum: {player_sum}")
+        else:
+            self.player_cards_label.config(text="")
+            self.player_sum_label.config(text="")
 
         # Dealer cards
-        dealer_display = " ".join([card_to_display(r, s) for r, s in self.dealer_cards])
-        self.dealer_cards_label.config(text=dealer_display if dealer_display else "??")
-        dealer_sum = calculate_hand(self.dealer_cards) if self.dealer_cards else 0
-        self.dealer_sum_label.config(text=f"Sum: {dealer_sum}")
+        if self.dealer_cards:
+            dealer_display = " ".join([card_to_display(r, s) for r, s in self.dealer_cards])
+            self.dealer_cards_label.config(text=dealer_display)
+            dealer_sum = calculate_hand(self.dealer_cards)
+            self.dealer_sum_label.config(text=f"Sum: {dealer_sum}")
+        else:
+            self.dealer_cards_label.config(text="??")
+            self.dealer_sum_label.config(text="")
 
     def start_udp_listener(self):
         """Listen for UDP broadcasts"""
@@ -313,7 +405,7 @@ class BlackjackGUI:
         server_id = f"{ip}:{port}"
         if server_id not in self.servers:
             self.servers[server_id] = (name, ip, port)
-            self.server_list.insert(tk.END, f"🎰 {name} ({ip}:{port})")
+            self.server_list.insert(tk.END, f"🎰 {name[:15]}")
             self.status.config(text=f"✅ Found {len(self.servers)} server(s)")
 
     def connect_to_server(self):
@@ -358,7 +450,7 @@ class BlackjackGUI:
 
             self.connected = True
             self.connect_btn.config(state="disabled")
-            self.status.config(text=f"✅ Connected to {name}! Starting game...")
+            self.status.config(text=f"✅ Connected! Starting game...")
 
             # Start game thread
             game_thread = threading.Thread(target=self.game_loop, daemon=True)
@@ -477,7 +569,7 @@ class BlackjackGUI:
         self.root.after(0, lambda: self.stand_btn.config(state="disabled"))
 
         time.sleep(0.5)
-        self.root.after(0, lambda: self.status.config(bg="#0a3d1f"))
+        self.root.after(0, lambda: self.status.config(bg="#1a1a1a"))
 
     def hit(self):
         """Send Hit command"""
@@ -503,41 +595,139 @@ class BlackjackGUI:
                 messagebox.showerror("Error", f"Failed to send: {e}")
 
     def show_game_over(self):
-        """Show game over screen"""
+        """Show game over screen with animated GIF"""
         win_rate = (self.wins / self.num_rounds * 100) if self.num_rounds > 0 else 0
 
-        msg = f"Game Over!\n\n"
-        msg += f"Rounds Played: {self.num_rounds}\n"
-        msg += f"Wins: {self.wins}\n"
-        msg += f"Losses: {self.losses}\n"
-        msg += f"Ties: {self.ties}\n"
-        msg += f"Win Rate: {win_rate:.1f}%\n\n"
+        # Create custom window
+        game_over_window = tk.Toplevel(self.root)
+        game_over_window.title("Game Over")
+        game_over_window.geometry("500x600")
+        game_over_window.configure(bg="#1a1a1a")
+        game_over_window.resizable(False, False)
 
+        # Center the window
+        game_over_window.transient(self.root)
+        game_over_window.grab_set()
+
+        # Title
+        title = tk.Label(
+            game_over_window,
+            text="🎰 GAME OVER 🎰",
+            font=("Arial", 24, "bold"),
+            bg="#1a1a1a",
+            fg="#ffd700"
+        )
+        title.pack(pady=20)
+
+        # GIF Animation
+        gif_label = tk.Label(game_over_window, bg="#1a1a1a")
+        gif_label.pack(pady=10)
+
+        # Load appropriate GIF
         if win_rate >= 50:
-            msg += "🏆 Great job!"
+            gif_path = "win.gif"
         else:
-            msg += "🎰 The house always wins!"
+            gif_path = "lose.gif"
 
-        messagebox.showinfo("Game Over", msg)
-        self.reset_game()
+        # Load and animate GIF
+        try:
+            gif_image = Image.open(gif_path)
+            frames = []
 
-    def reset_game(self):
-        """Reset game state"""
-        if self.game_socket:
-            self.game_socket.close()
+            # Extract all frames from GIF
+            try:
+                while True:
+                    frame = gif_image.copy()
+                    frame = frame.resize((300, 300), Image.LANCZOS)
+                    frames.append(ImageTk.PhotoImage(frame))
+                    gif_image.seek(len(frames))  # Move to next frame
+            except EOFError:
+                pass  # All frames extracted
 
-        self.connected = False
-        self.game_socket = None
-        self.player_cards = []
-        self.dealer_cards = []
-        self.current_round = 0
+            # Animate function
+            def animate(frame_idx=0):
+                if game_over_window.winfo_exists():
+                    gif_label.config(image=frames[frame_idx])
+                    frame_idx = (frame_idx + 1) % len(frames)
+                    game_over_window.after(50, animate, frame_idx)  # 50ms = ~20fps
 
-        self.connect_btn.config(state="normal")
-        self.hit_btn.config(state="disabled")
-        self.stand_btn.config(state="disabled")
-        self.update_display()
-        self.update_stats()
-        self.status.config(text="🔍 Looking for servers...", bg="#0a3d1f")
+            animate()
+
+        except Exception as e:
+            print(f"Error loading GIF: {e}")
+            # Fallback emoji if GIF fails
+            emoji = "🏆" if win_rate >= 50 else "💔"
+            gif_label.config(
+                text=emoji,
+                font=("Arial", 100),
+                bg="#1a1a1a"
+            )
+
+        # Stats Panel
+        stats_frame = tk.Frame(game_over_window, bg="#2d2d2d", bd=2, relief="solid")
+        stats_frame.pack(pady=20, padx=40, fill="both")
+
+        # Result message
+        if win_rate >= 50:
+            result_msg = "🎉 WINNER! 🎉"
+            result_color = "#28a745"
+        else:
+            result_msg = "😔 Better luck next time!"
+            result_color = "#dc3545"
+
+        result_label = tk.Label(
+            stats_frame,
+            text=result_msg,
+            font=("Arial", 18, "bold"),
+            bg="#2d2d2d",
+            fg=result_color,
+            pady=10
+        )
+        result_label.pack()
+
+        # Separator
+        tk.Frame(stats_frame, bg="#ffd700", height=2).pack(fill="x", padx=20, pady=5)
+
+        # Statistics
+        stats_text = f"""
+    Rounds Played: {self.num_rounds}
+
+    Wins: {self.wins}
+    Losses: {self.losses}
+    Ties: {self.ties}
+
+    Win Rate: {win_rate:.1f}%
+    """
+
+        stats_label = tk.Label(
+            stats_frame,
+            text=stats_text,
+            font=("Arial", 14),
+            bg="#2d2d2d",
+            fg="white",
+            justify="center"
+        )
+        stats_label.pack(pady=10)
+
+        # Close button
+        close_btn = tk.Button(
+            game_over_window,
+            text="✖ Close",
+            font=("Arial", 14, "bold"),
+            bg="#dc3545",
+            fg="white",
+            activebackground="#c82333",
+            command=lambda: [game_over_window.destroy(), self.reset_game()],
+            cursor="hand2",
+            bd=0,
+            padx=30,
+            pady=10
+        )
+        close_btn.pack(pady=20)
+
+        # Wait for window to close
+        game_over_window.wait_window()
+
 
     def run(self):
         """Start the GUI"""
