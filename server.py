@@ -3,46 +3,74 @@ import time
 import threading
 import protocol
 from game_logic import BlackjackGame
+from concurrent.futures import ThreadPoolExecutor
+import logging
+
+# --- Logging Setup ---
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(threadName)-12s] %(message)s',
+    datefmt='%H:%M:%S'
+)
+logger = logging.getLogger(__name__)
 
 # --- Network Constants ---
 UDP_DEST_PORT = 13122
 BROADCAST_IP = '<broadcast>'
 TCP_PORT = 0
 CLIENT_TIMEOUT = 60
+MAX_CONCURRENT_CLIENTS = 10  # Thread pool size
 
-# --- Global Statistics ---
-active_players = 0  # Counter for connected clients
-active_players_lock = threading.Lock()  # Thread-safety for the counter
+# --- Global Statistics (Thread-Safe) ---
+active_players = 0
+active_players_lock = threading.Lock()
+
+# --- Thread Pool ---
+thread_pool = ThreadPoolExecutor(max_workers=MAX_CONCURRENT_CLIENTS, thread_name_prefix="ClientHandler")
 
 
 def get_local_ip():
     """
     Attempts to find the actual local IP address of the machine.
     """
+    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
+        # Create UDP socket
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         s.connect(("8.8.8.8", 80))
+        # Get the local IP address that the socket is using.
         ip = s.getsockname()[0]
+        # Close the socket.
         s.close()
-        return ip
     except Exception:
-        return "127.0.0.1"
+        # If something goes wrong (for example: no internet connection),
+        # return a default IP address as a fallback.
+        s.close()
+        ip = "26.113.0.164"
 
+    # Return the detected local IP address.
+    return ip
 
 def broadcast_offers(server_tcp_port):
     """
     Broadcasts UDP offers every 1 second.
+    Thread-safe logging via logger.
     """
+    # Create a UDP socket for sending broadcast messages.
     udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    # Allows the socket to send packets to the broadcast address.
     udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
 
     try:
         while True:
+            # The packet contains the TCP port and the server name.
             packet = protocol.pack_offer(server_tcp_port, "Dekel-Sagi-Server")
+            # Send the offer packet to all devices in the local network
+            # using the broadcast IP and the predefined UDP port.
             udp_socket.sendto(packet, (BROADCAST_IP, UDP_DEST_PORT))
             time.sleep(1)
     except Exception as e:
-        print(f"Error in broadcast thread: {e}")
+        logger.error(f"Error in broadcast thread: {e}")
     finally:
         udp_socket.close()
 
@@ -101,13 +129,12 @@ def play_one_round(client_socket, game_num, client_name, client_addr):
     drain_socket(client_socket)
     time.sleep(0.8)
 
-
     game = BlackjackGame()
     player_cards = []
     dealer_cards = []
 
     log_prefix = f"[{client_name} | {client_addr[0]}:{client_addr[1]}]"
-    print(f"{log_prefix} Starting Round {game_num}")
+    logger.info(f"{log_prefix} Starting Round {game_num}")
 
     # 1. Initial Deal
     player_cards.append(game.draw_card())
@@ -137,7 +164,6 @@ def play_one_round(client_socket, game_num, client_name, client_addr):
 
             decision = protocol.unpack_client_payload(data)
 
-            # רק אם הפקודה היא בפירוש "Stand" עוצרים.
             if decision == "Hittt":
                 new_card = game.draw_card()
                 player_cards.append(new_card)
@@ -145,30 +171,29 @@ def play_one_round(client_socket, game_num, client_name, client_addr):
 
                 if player_sum > 21:
                     send_game_packet(client_socket, 2, new_card)
-                    print(f"{log_prefix} Player busted with {player_sum}!")
-                    print(f"{log_prefix} Round {game_num} finished. Result code: 2")
+                    logger.info(f"{log_prefix} Player busted with {player_sum}!")
+                    logger.info(f"{log_prefix} Round {game_num} finished. Result code: 2")
                     return
                 else:
                     send_game_packet(client_socket, 0, new_card)
 
             elif decision == "Stand":
-                print(f"{log_prefix} Player chose to Stand.")
+                logger.info(f"{log_prefix} Player chose to Stand.")
                 break
-
             else:
-                print(f"{log_prefix} Received invalid packet/garbage. Ignoring.")
+                logger.debug(f"{log_prefix} Received invalid packet/garbage. Ignoring.")
                 continue
 
         except socket.timeout:
-            print(f"{log_prefix} Timed out.")
+            logger.warning(f"{log_prefix} Timed out.")
             raise Exception("Game Timeout")
         except Exception as e:
-            print(f"{log_prefix} Connection error: {e}")
+            logger.error(f"{log_prefix} Connection error: {e}")
             raise e
 
     # 3. Dealer Turn
     dealer_sum = calculate_points_safe(dealer_cards)
-    print(f"DEBUG: Initial Dealer Hand: {dealer_cards} (Sum: {dealer_sum})")
+    logger.debug(f"{log_prefix} Initial Dealer Hand: {dealer_cards} (Sum: {dealer_sum})")
 
     if dealer_sum < 17:
         send_game_packet(client_socket, 0, dealer_cards[1])  # Reveal
@@ -179,18 +204,18 @@ def play_one_round(client_socket, game_num, client_name, client_addr):
             dealer_cards.append(new_card)
             dealer_sum = calculate_points_safe(dealer_cards)
 
-            print(f"DEBUG: Dealer drew {new_card}. New Sum: {dealer_sum}")
+            logger.debug(f"{log_prefix} Dealer drew {new_card}. New Sum: {dealer_sum}")
 
             if dealer_sum < 17:
                 send_game_packet(client_socket, 0, new_card)
     else:
-        print(f"{log_prefix} Dealer stands on initial {dealer_sum}")
+        logger.info(f"{log_prefix} Dealer stands on initial {dealer_sum}")
 
     # 4. Result Logic
     p_final = calculate_points_safe(player_cards)
     d_final = calculate_points_safe(dealer_cards)
 
-    print(f"DEBUG FINAL CALC -> Player: {p_final}, Dealer: {d_final}")
+    logger.debug(f"{log_prefix} FINAL CALC -> Player: {p_final}, Dealer: {d_final}")
 
     winner = 0
     if d_final > 21:
@@ -203,13 +228,14 @@ def play_one_round(client_socket, game_num, client_name, client_addr):
         winner = 1
 
     send_game_packet(client_socket, winner, dealer_cards[-1])
-    print(f"{log_prefix} Round {game_num} finished. Result code: {winner}")
+    logger.info(f"{log_prefix} Round {game_num} finished. Result code: {winner}")
 
 
 def handle_client(client_socket, client_addr):
     """
     Handles a single client connection.
-    Updates global player statistics.
+    Updates global player statistics (thread-safe with lock).
+    Each client runs in its own thread from the thread pool.
     """
     global active_players
 
@@ -218,7 +244,7 @@ def handle_client(client_socket, client_addr):
         active_players += 1
         current_players = active_players
 
-    print(f"--- New Connection: {client_addr} | Total Players: {current_players} ---")
+    logger.info(f"New Connection: {client_addr[0]}:{client_addr[1]} | Total Players: {current_players}")
 
     try:
         # Handshake
@@ -228,32 +254,29 @@ def handle_client(client_socket, client_addr):
 
         valid_request = protocol.unpack_request(request_data)
         if not valid_request:
-            print(f"Invalid request from {client_addr}")
+            logger.warning(f"Invalid request from {client_addr}")
             return
 
         num_rounds, client_name = valid_request
-        print(f"Player '{client_name}' ({client_addr[0]}) wants {num_rounds} rounds.")
+        logger.info(f"Player '{client_name}' ({client_addr[0]}) wants {num_rounds} rounds")
 
         # Game Loop
         for i in range(num_rounds):
             play_one_round(client_socket, i + 1, client_name, client_addr)
             time.sleep(1.5)
 
-
-        print(f"Finished serving {client_name} at {client_addr}")
-        # Graceful exit wait
-
+        logger.info(f"Finished serving '{client_name}' at {client_addr[0]}")
         time.sleep(2.0)
 
     except Exception as e:
-        print(f"Error serving {client_addr}: {e}")
+        logger.error(f"Error serving {client_addr}: {e}")
     finally:
         # Update stats safely on exit
         with active_players_lock:
             active_players -= 1
             remaining = active_players
 
-        print(f"--- Disconnected: {client_addr} | Total Players: {remaining} ---")
+        logger.info(f"Disconnected: {client_addr[0]}:{client_addr[1]} | Total Players: {remaining}")
         client_socket.close()
 
 
@@ -263,29 +286,33 @@ def start_server():
     server_tcp_port = server_socket.getsockname()[1]
     server_socket.listen()
 
-    print(f"Server started on IP {get_local_ip()}")
-    print(f"Listening on TCP port {server_tcp_port}")
-    print("Waiting for clients...")
+    logger.info(f"Server started on IP {get_local_ip()}")
+    logger.info(f"Listening on TCP port {server_tcp_port}")
+    logger.info(f"Thread pool max workers: {MAX_CONCURRENT_CLIENTS}")
+    logger.info("Waiting for clients...")
 
     server_socket.settimeout(1.0)
 
-    broadcast_thread = threading.Thread(target=broadcast_offers, args=(server_tcp_port,))
+    broadcast_thread = threading.Thread(target=broadcast_offers, args=(server_tcp_port,), daemon=True, name="BroadcastThread")
     broadcast_thread.daemon = True
     broadcast_thread.start()
 
-    while True:
-        try:
-            client_sock, client_addr = server_socket.accept()
-            client_thread = threading.Thread(target=handle_client, args=(client_sock, client_addr))
-            client_thread.start()
+    try:
+        while True:
+            try:
+                client_sock, client_addr = server_socket.accept()
+                # Submit client handling to thread pool instead of creating new threads
+                thread_pool.submit(handle_client, client_sock, client_addr)
 
-        except socket.timeout:
-            continue
-        except Exception as e:
-            print(f"Server error: {e}")
-            break
-
-    server_socket.close()
+            except socket.timeout:
+                continue
+            except Exception as e:
+                logger.error(f"Server error: {e}")
+                break
+    finally:
+        logger.info("Shutting down thread pool...")
+        thread_pool.shutdown(wait=True)
+        server_socket.close()
 
 
 if __name__ == "__main__":
