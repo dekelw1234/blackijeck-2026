@@ -2,11 +2,19 @@ import socket
 import protocol
 import os
 import time
+import random
 
 # --- Network Constants ---
 UDP_PORT = 13122
 BUFFER_SIZE = 1024
 
+cow = [
+    r"      ^__^",
+    r"      (oo)\_______",
+    r"      (__)\       )\/\ ",
+    r"          ||----w |",
+    r"          ||     ||",
+]
 
 # --- Colors for Terminal ---
 class Colors:
@@ -75,12 +83,11 @@ def print_end_game_art(win_rate):
     if win_rate < 50:
         # Donkey Art
         print(f"{Colors.RED}")
-        print(r"       _     _")
-        print(r"      / \___/ \ ")
-        print(r"     /         \ ")
-        print(r"    |   o   o   |")
-        print(r"     \   \_/   /  ")
-        print(r"      \_______/   ")
+        print(r"      ^__^")
+        print(r"      (oo)\_______")
+        print(r"      (__)\       )\/\ ")
+        print(r"          ||----w |")
+        print(r"          ||     ||")
         print(f"{Colors.BOLD} The House Always Wins! Don't be a donkey...{Colors.RESET}")
     else:
         # Trophy Art
@@ -134,7 +141,13 @@ def connect_to_server(server_ip, server_port):
 
         team_name = "Team-Dekel-And-Sagi"
         try:
-            num_rounds = int(input(f"{Colors.BOLD}How many rounds would you like to play? {Colors.RESET}"))
+            while True:
+                num_rounds = input(f"{Colors.BOLD}How many rounds would you like to play? {Colors.RESET}")
+                if num_rounds.strip().isdigit() and int(num_rounds) > 0:
+                    num_rounds = int(num_rounds)
+                    break
+                else:
+                    print(f"{Colors.RED}Please enter a valid positive integer for rounds.{Colors.RESET}")
         except ValueError:
             num_rounds = 1
 
