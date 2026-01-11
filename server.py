@@ -125,14 +125,12 @@ def drain_socket(sock):
 
 
 def play_one_round(client_socket, game_num, client_name, client_addr):
-
     drain_socket(client_socket)
     time.sleep(0.8)
-
     game = BlackjackGame()
     player_cards = []
     dealer_cards = []
-
+    is_revealed  = False
     log_prefix = f"[{client_name} | {client_addr[0]}:{client_addr[1]}]"
     logger.info(f"{log_prefix} Starting Round {game_num}")
 
@@ -146,22 +144,16 @@ def play_one_round(client_socket, game_num, client_name, client_addr):
     time.sleep(0.2)
     send_game_packet(client_socket, 0, player_cards[1])
     time.sleep(0.2)
-    send_game_packet(client_socket, 0, dealer_cards[0]) # revel only the first card
+    send_game_packet(client_socket, 0, dealer_cards[0]) # reveal only the first card
     time.sleep(0.2)
 
     # 2. Player Turn
     while True:
-        player_sum = calculate_points_safe(player_cards)
+        player_sum = calculate_points_safe(player_cards) # calculate player's hand value
 
-        if player_sum >= 21:
-            if player_sum > 21:
-                logger.info(f"{log_prefix} Player busted with {player_sum}!")
-                send_game_packet(client_socket, 2, None)  # Player bust
-                logger.info(f"{log_prefix} Round {game_num} finished. Result code: 2")
-                return
-            else:  # player_sum == 21
-                logger.info(f"{log_prefix} Player has 21, auto-stand.")
-                break
+        if player_sum == 21:
+            logger.info(f"{log_prefix} Player has 21, auto-stand.")
+            break
 
         try:
             client_socket.settimeout(CLIENT_TIMEOUT)
@@ -178,15 +170,14 @@ def play_one_round(client_socket, game_num, client_name, client_addr):
                 new_sum = calculate_points_safe(player_cards)
 
                 if new_sum > 21:
-                    send_game_packet(client_socket, 0, new_card)  # שלח את הקלף
-                    time.sleep(0.3)
-                    send_game_packet(client_socket, 2, None)
+                    send_game_packet(client_socket, 2, new_card) # send played card
+                    time.sleep(0.5)
                     logger.info(f"{log_prefix} Player busted with {new_sum}!")
                     logger.info(f"{log_prefix} Round {game_num} finished. Result code: 2")
                     return
                 else:
                     send_game_packet(client_socket, 0, new_card)
-                    time.sleep(0.2)
+                    time.sleep(0.5)
 
             elif decision == "Stand":
                 logger.info(f"{log_prefix} Player chose to Stand with {player_sum}.")
@@ -202,49 +193,43 @@ def play_one_round(client_socket, game_num, client_name, client_addr):
             logger.error(f"{log_prefix} Connection error: {e}")
             raise e
 
+    player_final = calculate_points_safe(player_cards)
+    time.sleep(0.5)
+    logger.info(f"{log_prefix} Player's turn ended with {player_final} points.")
     # 3. Dealer Turn
-    time.sleep(0.5)
-    send_game_packet(client_socket, 0, dealer_cards[1]) # revel the second dealer card
-    time.sleep(0.5)
 
-    dealer_sum = calculate_points_safe(dealer_cards)
-    logger.debug(f"{log_prefix} Initial Dealer Hand: {dealer_cards} (Sum: {dealer_sum})")
+    while True:
+        if not is_revealed :
+            new_card = dealer_cards[1]
+            is_revealed  = True
+        else:
+            new_card = game.draw_card()
+            dealer_cards.append(new_card)
 
-    while dealer_sum<17:
-        new_card = game.draw_card()
-        dealer_cards.append(new_card)
         dealer_sum = calculate_points_safe(dealer_cards)
-
+        time.sleep(0.5)
         logger.debug(f"{log_prefix} Dealer drew {new_card}. New Sum: {dealer_sum}")
 
-        send_game_packet(client_socket, 0, new_card)  # send the new card to client
+        if dealer_sum >= 17:
+            if dealer_sum > 21 or dealer_sum < player_final: # dealer busts
+                send_game_packet(client_socket, 3, new_card)  # send the new card to client
+                time.sleep(0.5)
+                logger.info(f"{log_prefix} Dealer busted! Player wins.")
+                return
+
+            if dealer_sum > player_final:  # dealer wins
+                send_game_packet(client_socket, 2, new_card)
+                logger.info(f"{log_prefix} Dealer wins ({dealer_sum} > {player_final})")
+                time.sleep(0.5)
+
+            else:  # player wins
+                send_game_packet(client_socket, 1, new_card)
+                logger.info(f"{log_prefix} Tie ({player_final} == {dealer_sum})")
+                time.sleep(0.5)
+            return
+        send_game_packet(client_socket, 0, new_card)
         time.sleep(0.5)
 
-    logger.info(f"{log_prefix} Dealer stands with {dealer_sum}")
-
-    # 4. Result Logic
-    time.sleep(0.5)
-
-    player_final = calculate_points_safe(player_cards)
-    dealer_final = dealer_sum
-
-    logger.debug(f"{log_prefix} FINAL -> Player: {player_final}, Dealer: {dealer_final}")
-
-    if dealer_final > 21:
-        winner = 3  # Dealer bust - Player wins
-        logger.info(f"{log_prefix} Dealer busted! Player wins.")
-    elif player_final > dealer_final:
-        winner = 3  # Player wins
-        logger.info(f"{log_prefix} Player wins ({player_final} > {dealer_final})")
-    elif dealer_final > player_final:
-        winner = 2  # Dealer wins
-        logger.info(f"{log_prefix} Dealer wins ({dealer_final} > {player_final})")
-    else:
-        winner = 1  # Tie
-        logger.info(f"{log_prefix} Tie ({player_final} == {dealer_final})")
-
-    send_game_packet(client_socket, winner, None)
-    logger.info(f"{log_prefix} Round {game_num} finished. Result code: {winner}")
 
 
 def handle_client(client_socket, client_addr):
