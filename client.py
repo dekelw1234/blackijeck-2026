@@ -199,7 +199,6 @@ def start_client():
         return
 
     print(f"{Colors.GREEN}Connected successfully! Waiting for game to start...{Colors.RESET}")
-
     wins = 0
     rounds_played = 0
 
@@ -291,7 +290,10 @@ def start_client():
                 else:
                     dealer_cards_str.append(card_str)
                     dealer_cards_ranks.append(rank)
-                    print(f"Dealer drew: {card_str}")
+                    if len(dealer_cards_str) == 2:
+                        print(f"Dealer reveal his second card: {card_str} (Sum: {calculate_hand(dealer_cards_ranks)})")
+                    else:
+                        print(f"Dealer drew: {card_str}")
                     print(f"Dealer's Hand: {', '.join(dealer_cards_str)}")
 
                 if my_turn and cards_received_counter >= 3:
