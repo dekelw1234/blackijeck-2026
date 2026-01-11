@@ -64,7 +64,7 @@ def broadcast_offers(server_tcp_port):
     try:
         while True:
             # The packet contains the TCP port and the server name.
-            packet = protocol.pack_offer(server_tcp_port, "Dekel-Sagi-Server")
+            packet = protocol.pack_offer(server_tcp_port, f"{server_tcp_port}-Dekel-Sagi-Server")
             # Send the offer packet to all devices in the local network
             # using the broadcast IP and the predefined UDP port.
             udp_socket.sendto(packet, (BROADCAST_IP, UDP_DEST_PORT))
