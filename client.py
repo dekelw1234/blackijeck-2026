@@ -178,7 +178,6 @@ def recv_all(sock, n):
     return data
 
 
-# --- החלק שהיה חסר: ניקוי שאריות בין סיבובים ---
 def drain_socket(sock):
     """
     Clears any pending data in the socket buffer.
@@ -221,7 +220,6 @@ def start_client():
             cards_received_counter = 0
 
             while True:
-                # קוראים בדיוק 9 בתים למניעת הדבקת חבילות
                 packet = recv_all(tcp_socket, 9)
 
                 # Graceful disconnect

@@ -41,63 +41,133 @@ def calculate_hand(cards):
 
 # --- Main GUI Class ---
 class BlackjackGUI:
+    """
+    Blackjack GUI Client
+
+    A graphical user interface client for connecting to a Blackjack server
+    via UDP broadcast discovery and TCP game connection.
+
+    Features:
+    - Automatic server discovery via UDP broadcasts
+    - Visual card display with suit symbols
+    - Responsive UI that adapts to window resizing
+    - Real-time game statistics tracking
+    - Animated GIF support for game-over screen
+    """
     def __init__(self):
+        """
+                Initialize the Blackjack GUI Client.
+
+                Sets up:
+                - Main window and display settings
+                - Network connection state variables
+                - Game state tracking (cards, rounds, statistics)
+                - Background image loading
+                - UI creation and UDP listener
+                - Window resize event binding
+        """
+
+        # Create main window
         self.root = tk.Tk()
         self.root.title("🎲 Blackjack Client")
         self.root.geometry("1024x768")
+
+        # Game control flag - used to stop game loops gracefully
         self.game_running = False
 
-        # State
+        # === Network State ===
+        # Dictionary of discovered servers: {server_id: (name, ip, port)}
         self.servers = {}
+        # Connection status flag
         self.connected = False
+        # Active TCP socket for game communication
         self.game_socket = None
+
+        # === Game Session State ===
+        # Total number of rounds requested by player
         self.num_rounds = 0
+        # Current round number (1-indexed)
         self.current_round = 0
+        # Win/loss/tie counters for statistics
         self.wins = 0
         self.losses = 0
         self.ties = 0
 
-        # Game state
+        # === Current Round State ===
+        # List of player's cards: [(rank, suit), ...]
         self.player_cards = []
+        # List of dealer's cards: [(rank, suit), ...]
         self.dealer_cards = []
+        # Flag indicating if it's currently the player's turn
         self.my_turn = True
+        # Counter for cards received in current round
         self.cards_received = 0
 
-        # Store window references for repositioning
+        # === UI State ===
+        # Dictionary storing canvas window IDs for repositioning on resize
+        # Keys: 'title', 'stats', 'connection', 'dealer', 'player', 'actions', 'status'
         self.windows = {}
 
-        # Load background image
+        # === Background Image ===
+        # Load background image for the game table
         try:
+            # Store original image for resizing
             self.bg_image_original = Image.open("blackjacktable.png")
+            # PhotoImage reference (updated on resize)
             self.bg_photo = None
         except Exception as e:
             print(f"Error loading background: {e}")
             self.bg_image_original = None
 
+        # === Initialize Components ===
+        # Build the user interface
         self.create_ui()
+        # Start listening for server broadcasts
         self.start_udp_listener()
 
-        # Bind resize event
+        # Bind window resize event to update layout
         self.root.bind('<Configure>', self.on_resize)
 
     def on_resize(self, event):
-        """Handle window resize - update background and reposition all elements"""
+        """Handle window resize events.
+            Called automatically when the window size changes. Updates the background
+            image to fit the new dimensions and repositions all UI elements to maintain
+            their relative positions.
+            Args:
+                event: Tkinter Configure event containing window dimensions
+                       - event.widget: The widget that was resized
+                       - event.width: New window width in pixels
+                       - event.height: New window height in pixels
+            Note:
+                Only processes resize events from the root window to avoid
+                handling resize events from child widgets.
+        """
+        # Only handle resize events from the main window
         if event.widget == self.root:
+            # Get new window dimensions
             width = event.width
             height = event.height
 
-            # Resize background image
+            # === Update Background Image ===
             if self.bg_image_original:
+                # Resize background image to match new window size
+                # LANCZOS provides high-quality image resampling
                 resized = self.bg_image_original.resize((width, height), Image.LANCZOS)
+                # Convert to PhotoImage for Tkinter display
                 self.bg_photo = ImageTk.PhotoImage(resized)
+
+                # Remove old background image from canvas
                 self.canvas.delete("bg")
+                # Create new background image at top-left corner
                 self.canvas.create_image(0, 0, image=self.bg_photo, anchor="nw", tags="bg")
+                # Ensure background stays behind all other elements
                 self.canvas.tag_lower("bg")
 
-            # Update canvas size
+            # Update canvas dimensions to match window
             self.canvas.config(width=width, height=height)
 
-            # Reposition all elements based on percentages
+            # Reposition all UI elements based on new dimensions
+            # Uses percentage-based positioning to maintain layout proportions
             self.reposition_elements(width, height)
 
     def reposition_elements(self, width, height):
@@ -362,7 +432,7 @@ class BlackjackGUI:
             player_display = " ".join([card_to_display(r, s) for r, s in self.player_cards])
             self.player_cards_label.config(
                 text=player_display,
-                relief="solid",  # ✅ הצג border
+                relief="solid",
                 bd=2
             )
             player_sum = calculate_hand(self.player_cards)
@@ -370,7 +440,7 @@ class BlackjackGUI:
         else:
             self.player_cards_label.config(
                 text="",
-                relief="flat",  # ✅ הסתר border!
+                relief="flat",
                 bd=0
             )
             self.player_sum_label.config(text="")
@@ -380,7 +450,7 @@ class BlackjackGUI:
             dealer_display = " ".join([card_to_display(r, s) for r, s in self.dealer_cards])
             self.dealer_cards_label.config(
                 text=dealer_display,
-                relief="solid",  # ✅ הצג border
+                relief="solid",
                 bd=2
             )
             dealer_sum = calculate_hand(self.dealer_cards)
@@ -388,7 +458,7 @@ class BlackjackGUI:
         else:
             self.dealer_cards_label.config(
                 text="",
-                relief="flat",  # ✅ הסתר border!
+                relief="flat",
                 bd=0
             )
             self.dealer_sum_label.config(text="")
@@ -508,7 +578,7 @@ class BlackjackGUI:
         try:
             while self.current_round < self.num_rounds and self.game_running:
                 self.play_round()
-                time.sleep(2)
+                time.sleep(0.2)
 
             if self.game_running:
                 self.root.after(0, self.show_game_over)
@@ -561,13 +631,11 @@ class BlackjackGUI:
         """Play one round"""
         self.current_round += 1
 
-        # ✅ נקה קלפים וUI
         self.player_cards = []
         self.dealer_cards = []
         self.my_turn = True
         self.cards_received = 0
 
-        # ✅ עדכן UI מיד - בצורה סינכרונית
         def clear_ui():
             self.update_display()
             self.update_stats()
@@ -577,8 +645,7 @@ class BlackjackGUI:
 
         self.root.after(0, clear_ui)
 
-        # ✅ המתן קצת כדי שה-UI יתעדכן
-        time.sleep(0.8)
+        time.sleep(0.2)
 
         while True:
             packet = self.recv_all(9)
@@ -616,18 +683,14 @@ class BlackjackGUI:
 
         # Enable buttons after initial deal
         if self.my_turn and self.cards_received >= 3:
-            # ✅ בדוק אם השחקן הגיע ל-21
             player_sum = calculate_hand(self.player_cards)
 
             if player_sum == 21:
-                # ✅ Stand אוטומטי!
                 self.root.after(0, lambda: self.status.config(text="🎉 21! Auto-standing..."))
                 self.root.after(0, lambda: self.hit_btn.config(state="disabled"))
                 self.root.after(0, lambda: self.stand_btn.config(state="disabled"))
-                # שלח Stand אחרי delay קצר כדי שהמשתמש יראה את ה-21
                 self.root.after(800, self.stand)
             else:
-                # ✅ אפשר לבחור רק אם לא ב-21
                 self.root.after(0, lambda: self.hit_btn.config(state="normal"))
                 self.root.after(0, lambda: self.stand_btn.config(state="normal"))
                 self.root.after(0, lambda: self.status.config(text="🤔 Your turn! Hit or Stand?"))
@@ -656,7 +719,6 @@ class BlackjackGUI:
             msg = "🤝 IT'S A TIE!"
             color = "#ffc107"
 
-        # ✅ עדכן הכל ביחד
         def show_result():
             self.update_stats()
             self.status.config(text=msg, bg=color)
@@ -665,10 +727,8 @@ class BlackjackGUI:
 
         self.root.after(0, show_result)
 
-        # ✅ המתן 2 שניות כדי לראות את התוצאה עם הקלפים
-        time.sleep(2.0)
+        time.sleep(2)
 
-        # ✅ נקה את הקלפים!
         self.player_cards = []
         self.dealer_cards = []
 
@@ -678,8 +738,8 @@ class BlackjackGUI:
 
         self.root.after(0, clear_after_result)
 
-        # ✅ המתן עוד רגע קצר לפני הסיבוב הבא
-        time.sleep(0.5)
+        # hold until next round
+        time.sleep(1)
 
     def hit(self):
         """Send Hit command"""
@@ -706,7 +766,6 @@ class BlackjackGUI:
 
     def show_game_over(self):
         """Show game over screen with animated GIF"""
-        # ✅ עצור את המשחק לפני שמציגים את החלון
         self.game_running = False
 
         win_rate = (self.wins / self.num_rounds * 100) if self.num_rounds > 0 else 0
@@ -821,7 +880,6 @@ class BlackjackGUI:
         )
         stats_label.pack(pady=10)
 
-        # ✅ Close button - אפס רק אחרי שסוגרים את החלון
         def on_close():
             game_over_window.destroy()
             self.reset_game()
@@ -841,7 +899,6 @@ class BlackjackGUI:
         )
         close_btn.pack(pady=20)
 
-        # ✅ טפל בסגירת החלון עם X
         game_over_window.protocol("WM_DELETE_WINDOW", on_close)
 
 
