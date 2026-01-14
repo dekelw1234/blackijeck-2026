@@ -3,7 +3,8 @@ from tkinter import messagebox, simpledialog
 import socket
 import threading
 import time
-import Protocols_and_Logics.protocol
+
+import Protocols_and_Logics.protocol as protocol
 from PIL import Image, ImageTk
 
 # --- Constants ---
