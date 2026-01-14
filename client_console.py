@@ -1,5 +1,5 @@
 import socket
-import Protocols_and_Logics.protocol as protocol
+import protocol
 import os
 import time
 

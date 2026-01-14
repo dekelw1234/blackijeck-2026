@@ -2,7 +2,7 @@ import socket
 import threading
 import time
 import random
-import Protocols_and_Logics.protocol as protocol
+import protocol
 
 UDP_PORT = 13122
 NUM_BOTS = 50

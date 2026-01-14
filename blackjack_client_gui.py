@@ -3,8 +3,7 @@ from tkinter import messagebox, simpledialog
 import socket
 import threading
 import time
-
-import Protocols_and_Logics.protocol as protocol
+import protocol
 from PIL import Image, ImageTk
 
 # --- Constants ---
@@ -113,7 +112,7 @@ class BlackjackGUI:
         # Load background image for the game table
         try:
             # Store original image for resizing
-            self.bg_image_original = Image.open("../images/blackjacktable.png")
+            self.bg_image_original = Image.open("images/blackjacktable.png")
             # PhotoImage reference (updated on resize)
             self.bg_photo = None
         except Exception as e:
@@ -481,23 +480,23 @@ class BlackjackGUI:
         """Listen for UDP broadcasts"""
 
         def listen():
-            udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            udp_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM) # AF_INET for IPv4, SOCK_DGRAM for UDP
             try:
-                udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+                udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1) # Allow multiple sockets to bind to same port
             except AttributeError:
                 udp_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
 
-            udp_socket.bind(("", UDP_PORT))
+            udp_socket.bind(("", UDP_PORT)) # Bind to all interfaces on UDP_PORT
 
-            while True:
+            while True: # Listen indefinitely
                 try:
-                    data, addr = udp_socket.recvfrom(BUFFER_SIZE)
-                    result = protocol.unpack_offer(data)
+                    data, addr = udp_socket.recvfrom(BUFFER_SIZE) # Receive data from any address
+                    result = protocol.unpack_offer(data) # Unpack the offer packet
 
-                    if result:
+                    if result: # check if unpacking was successful with same Protocol
                         server_port, server_name = result
                         server_ip = addr[0]
-                        self.add_server(server_name, server_ip, server_port)
+                        self.add_server(server_name, server_ip, server_port) # add server to list - no auto connect
                 except Exception as e:
                     print(f"UDP Error: {e}")
 
@@ -532,8 +531,8 @@ class BlackjackGUI:
             initialvalue=3
         )
 
-        if not num_rounds:
-            return
+        if  num_rounds is None : # if user didn't enter a value, default to 3
+            num_rounds = 3
 
         self.num_rounds = num_rounds
         self.current_round = 0
@@ -545,7 +544,7 @@ class BlackjackGUI:
         # Connect
         try:
             self.status.config(text=f"🔄 Connecting to {name}...")
-            self.game_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            self.game_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM) # TCP socket
             self.game_socket.connect((ip, port))
 
             # Send request
@@ -566,19 +565,19 @@ class BlackjackGUI:
 
     def recv_all(self, n):
         """Receive exactly n bytes"""
-        data = b''
-        while len(data) < n:
+        data = b'' # Set Buffer to empty
+        while len(data) < n: # Loop until we have n bytes
             try:
-                if not self.game_running:
+                if not self.game_running: # If game is not running, exit
                     return None
 
-                self.game_socket.settimeout(1.0)
-                packet = self.game_socket.recv(n - len(data))
-                if not packet:
+                self.game_socket.settimeout(1.0) # Set timeout to avoid blocking indefinitely
+                packet = self.game_socket.recv(n - len(data)) # Receive remaining bytes
+                if not packet: # Connection closed
                     return None
-                data += packet
-            except socket.timeout:
-                if not self.game_running:
+                data += packet # Append received bytes to data
+            except socket.timeout: # Timeout occurred
+                if not self.game_running: # If game is not running, exit
                     return None
                 continue
             except:
@@ -643,35 +642,38 @@ class BlackjackGUI:
 
     def play_round(self):
         """Play one round"""
+        # Increment round counter
         self.current_round += 1
-
+        # Clear any pending data
         self.drain_socket()
+        # Reset round state
         self.player_cards = []
         self.dealer_cards = []
         self.my_turn = True
         self.cards_received = 0
 
         def clear_ui():
+            """Clear UI for new round"""
             self.update_display()
             self.update_stats()
             self.status.config(text=f"🎲 Round {self.current_round} starting...")
             self.hit_btn.config(state="disabled")
             self.stand_btn.config(state="disabled")
 
-        self.root.after(0, clear_ui)
+        self.root.after(0, clear_ui) # Clear UI in main thread
 
         time.sleep(0.2)
 
         while True:
-            packet = self.recv_all(9)
+            packet = self.recv_all(9) # Fixed packet size
             if not packet:
                 raise Exception("Server disconnected")
 
-            parsed = protocol.unpack_server_payload(packet)
+            parsed = protocol.unpack_server_payload(packet) # Unpack server payload
             if not parsed:
                 continue
 
-            result, rank, suit = parsed
+            result, rank, suit = parsed # Unpack result, rank, suit
 
             # Game ended
             if result != 0:
@@ -684,6 +686,7 @@ class BlackjackGUI:
 
     def handle_card(self, rank, suit):
         """Handle receiving a card"""
+
         if self.my_turn:
             if self.cards_received <= 2:
                 self.player_cards.append((rank, suit))
@@ -812,9 +815,9 @@ class BlackjackGUI:
 
         # Load appropriate GIF
         if win_rate >= 50:
-            gif_path = "../images/win.gif"
+            gif_path = "images/win.gif"
         else:
-            gif_path = "../images/lose.gif"
+            gif_path = "images/lose.gif"
 
         # Load and animate GIF
         try:
