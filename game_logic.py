@@ -60,3 +60,4 @@ class BlackjackGame:
         if dealer_sum > player_sum:
             return 2
         return 1  # Tie
+

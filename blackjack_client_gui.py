@@ -645,7 +645,7 @@ class BlackjackGUI:
         # Increment round counter
         self.current_round += 1
         # Clear any pending data
-        self.drain_socket()
+        # self.drain_socket()
         # Reset round state
         self.player_cards = []
         self.dealer_cards = []
