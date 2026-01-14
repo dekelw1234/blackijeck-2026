@@ -123,7 +123,7 @@ class BlackjackGUI:
         # Build the user interface
         self.create_ui()
         # Start listening for server broadcasts
-        self.start_udp_listener()
+        self.listen_for_offers()
 
         # Bind window resize event to update layout
         self.root.bind('<Configure>', self.on_resize)
@@ -425,6 +425,19 @@ class BlackjackGUI:
             text=f"W:{self.wins} L:{self.losses} T:{self.ties}\nRound: {self.current_round}/{self.num_rounds}"
         )
 
+    def drain_socket(self):
+        """Clear any pending data in socket buffer"""
+        if not self.game_socket:
+            return
+
+        self.game_socket.setblocking(False)
+        try:
+            while self.game_socket.recv(1024):
+                pass
+        except:
+            pass
+        self.game_socket.setblocking(True)
+
     def update_display(self):
         """Update card displays"""
         # Player cards list
@@ -463,7 +476,7 @@ class BlackjackGUI:
             )
             self.dealer_sum_label.config(text="")
 
-    def start_udp_listener(self):
+    def listen_for_offers(self):
         """Listen for UDP broadcasts"""
 
         def listen():
@@ -631,6 +644,7 @@ class BlackjackGUI:
         """Play one round"""
         self.current_round += 1
 
+        self.drain_socket()
         self.player_cards = []
         self.dealer_cards = []
         self.my_turn = True
