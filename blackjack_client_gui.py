@@ -112,7 +112,7 @@ class BlackjackGUI:
         # Load background image for the game table
         try:
             # Store original image for resizing
-            self.bg_image_original = Image.open("blackjacktable.png")
+            self.bg_image_original = Image.open("images/blackjacktable.png")
             # PhotoImage reference (updated on resize)
             self.bg_photo = None
         except Exception as e:
@@ -797,9 +797,9 @@ class BlackjackGUI:
 
         # Load appropriate GIF
         if win_rate >= 50:
-            gif_path = "win.gif"
+            gif_path = "images/win.gif"
         else:
-            gif_path = "lose.gif"
+            gif_path = "images/lose.gif"
 
         # Load and animate GIF
         try:

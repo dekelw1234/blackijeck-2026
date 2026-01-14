@@ -51,6 +51,7 @@ def get_local_ip():
     # Return the detected local IP address.
     return ip
 
+
 def broadcast_offers(server_tcp_port):
     """
     Broadcasts UDP offers every 1 second.
@@ -108,7 +109,6 @@ def calculate_points_safe(cards):
     return total
 
 
-
 def drain_socket(sock):
     """
     Clears any pending data in the socket buffer.
@@ -130,7 +130,7 @@ def play_one_round(client_socket, game_num, client_name, client_addr):
     game = BlackjackGame()
     player_cards = []
     dealer_cards = []
-    is_revealed  = False
+    is_revealed = False
     log_prefix = f"[{client_name} | {client_addr[0]}:{client_addr[1]}]"
     logger.info(f"{log_prefix} Starting Round {game_num}")
 
@@ -144,12 +144,12 @@ def play_one_round(client_socket, game_num, client_name, client_addr):
     time.sleep(0.2)
     send_game_packet(client_socket, 0, player_cards[1])
     time.sleep(0.2)
-    send_game_packet(client_socket, 0, dealer_cards[0]) # reveal only the first card
+    send_game_packet(client_socket, 0, dealer_cards[0])  # reveal only the first card
     time.sleep(0.2)
 
     # 2. Player Turn
     while True:
-        player_sum = calculate_points_safe(player_cards) # calculate player's hand value
+        player_sum = calculate_points_safe(player_cards)  # calculate player's hand value
 
         if player_sum == 21:
             logger.info(f"{log_prefix} Player has 21, auto-stand.")
@@ -170,7 +170,7 @@ def play_one_round(client_socket, game_num, client_name, client_addr):
                 new_sum = calculate_points_safe(player_cards)
 
                 if new_sum > 21:
-                    send_game_packet(client_socket, 2, new_card) # send played card
+                    send_game_packet(client_socket, 2, new_card)  # send played card
                     time.sleep(0.5)
                     logger.info(f"{log_prefix} Player busted with {new_sum}!")
                     logger.info(f"{log_prefix} Round {game_num} finished. Result code: 2")
@@ -199,9 +199,9 @@ def play_one_round(client_socket, game_num, client_name, client_addr):
     # 3. Dealer Turn
 
     while True:
-        if not is_revealed :
+        if not is_revealed:
             new_card = dealer_cards[1]
-            is_revealed  = True
+            is_revealed = True
         else:
             new_card = game.draw_card()
             dealer_cards.append(new_card)
@@ -210,20 +210,15 @@ def play_one_round(client_socket, game_num, client_name, client_addr):
         time.sleep(0.5)
         logger.debug(f"{log_prefix} Dealer drew {new_card}. New Sum: {dealer_sum}")
 
-        if dealer_sum > player_final: # if dealer already won
-            send_game_packet(client_socket, 2, new_card)
-            logger.info(f"{log_prefix} Dealer wins ({dealer_sum} > {player_final})")
-            time.sleep(0.5)
-            return
 
         if dealer_sum >= 17:
-            if dealer_sum > 21 or dealer_sum < player_final: # dealer busts
+            if dealer_sum > 21 or dealer_sum < player_final:  # dealer busts
                 send_game_packet(client_socket, 3, new_card)  # send the new card to client
                 time.sleep(0.5)
                 logger.info(f"{log_prefix} Dealer busted! Player wins.")
                 return
 
-            if dealer_sum > player_final:  # dealer wins
+            if dealer_sum > player_final and dealer_sum <= 21:  # dealer wins
                 send_game_packet(client_socket, 2, new_card)
                 logger.info(f"{log_prefix} Dealer wins ({dealer_sum} > {player_final})")
                 time.sleep(0.5)
@@ -235,7 +230,6 @@ def play_one_round(client_socket, game_num, client_name, client_addr):
             return
         send_game_packet(client_socket, 0, new_card)
         time.sleep(0.5)
-
 
 
 def handle_client(client_socket, client_addr):
@@ -300,7 +294,8 @@ def start_server():
 
     server_socket.settimeout(1.0)
 
-    broadcast_thread = threading.Thread(target=broadcast_offers, args=(server_tcp_port,), daemon=True, name="BroadcastThread")
+    broadcast_thread = threading.Thread(target=broadcast_offers, args=(server_tcp_port,), daemon=True,
+                                        name="BroadcastThread")
     broadcast_thread.daemon = True
     broadcast_thread.start()
 
