@@ -1,8 +1,8 @@
 import socket
 import time
 import threading
-import protocol
-from game_logic import BlackjackGame
+import Protocols_and_Logics.protocol
+from Protocols_and_Logics.game_logic import BlackjackGame
 from concurrent.futures import ThreadPoolExecutor
 import logging
 

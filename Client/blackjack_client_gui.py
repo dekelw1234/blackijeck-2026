@@ -1,9 +1,9 @@
 import tkinter as tk
-from tkinter import ttk, messagebox, simpledialog
+from tkinter import messagebox, simpledialog
 import socket
 import threading
 import time
-import protocol
+import Protocols_and_Logics.protocol
 from PIL import Image, ImageTk
 
 # --- Constants ---
@@ -112,7 +112,7 @@ class BlackjackGUI:
         # Load background image for the game table
         try:
             # Store original image for resizing
-            self.bg_image_original = Image.open("images/blackjacktable.png")
+            self.bg_image_original = Image.open("../images/blackjacktable.png")
             # PhotoImage reference (updated on resize)
             self.bg_photo = None
         except Exception as e:
@@ -811,9 +811,9 @@ class BlackjackGUI:
 
         # Load appropriate GIF
         if win_rate >= 50:
-            gif_path = "images/win.gif"
+            gif_path = "../images/win.gif"
         else:
-            gif_path = "images/lose.gif"
+            gif_path = "../images/lose.gif"
 
         # Load and animate GIF
         try:
